@@ -11,7 +11,12 @@ import {
   X,
   Plus,
   Trash2,
-  FileText
+  FileText,
+  Twitter,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Info,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
@@ -42,6 +47,54 @@ interface FeedData {
   items: Article[];
 }
 
+type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+interface Toast {
+  id: number;
+  message: string;
+  type: ToastType;
+}
+
+const TOAST_ICON: Record<ToastType, React.FC<{ className?: string }>> = {
+  success: CheckCircle2,
+  error: XCircle,
+  warning: AlertTriangle,
+  info: Info,
+};
+
+const TOAST_ICON_COLOR: Record<ToastType, string> = {
+  success: 'text-emerald-500',
+  error: 'text-red-500',
+  warning: 'text-amber-500',
+  info: 'text-indigo-400',
+};
+
+function SkeletonCard() {
+  return (
+    <div className="p-7 rounded-3xl border border-[#e5e5e5] bg-white animate-pulse">
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-6 w-24 bg-[#f0f0f0] rounded-lg" />
+          <div className="h-4 w-14 bg-[#f0f0f0] rounded" />
+        </div>
+        <div className="space-y-2.5">
+          <div className="h-6 w-3/4 bg-[#f0f0f0] rounded-lg" />
+          <div className="h-6 w-1/2 bg-[#f0f0f0] rounded-lg" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-4 w-full bg-[#f0f0f0] rounded" />
+          <div className="h-4 w-5/6 bg-[#f0f0f0] rounded" />
+          <div className="h-4 w-4/6 bg-[#f0f0f0] rounded" />
+        </div>
+        <div className="flex gap-3 pt-1">
+          <div className="h-9 w-28 bg-[#f0f0f0] rounded-xl" />
+          <div className="h-9 w-28 bg-[#f0f0f0] rounded-xl" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<string | null>(null);
@@ -49,17 +102,18 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summarizing, setSummarizing] = useState<string | null>(null);
-  const [digest, setDigest] = useState<{ type: 'daily' | 'weekly', content: string } | null>(null);
+  const [digest, setDigest] = useState<{ type: 'daily' | 'weekly'; content: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newFeed, setNewFeed] = useState({ name: '', url: '', type: 'rss' as 'rss' | 'x', category: 'General' });
-  const [toasts, setToasts] = useState<{ id: number; message: string }[]>([]);
+  const [toasts, setToasts] = useState<Toast[]>([]);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const showToast = (message: string) => {
+  const showToast = (message: string, type: ToastType = 'info') => {
     const id = Date.now();
-    setToasts(prev => [...prev, { id, message }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4500);
   };
 
   const categories = useMemo(() => {
@@ -84,8 +138,8 @@ export default function App() {
       const response = await fetch('/api/feeds');
       const data = await response.json();
       setFeeds(data);
-    } catch (error) {
-      console.error("Error fetching feeds:", error);
+    } catch (err) {
+      console.error('Error fetching feeds:', err);
     }
   };
 
@@ -100,23 +154,34 @@ export default function App() {
       if (response.ok) {
         await fetchFeeds();
         setShowAddModal(false);
+        showToast(`"${newFeed.name}" added to your subscriptions`, 'success');
         setNewFeed({ name: '', url: '', type: 'rss', category: 'General' });
+      } else {
+        const data = await response.json().catch(() => ({}));
+        showToast(data.error || 'Could not add this feed. Check the URL and try again.', 'error');
       }
-    } catch (error) {
-      console.error("Error adding feed:", error);
+    } catch (err) {
+      console.error('Error adding feed:', err);
+      showToast('Something went wrong. Check your connection and try again.', 'error');
     }
   };
 
   const handleDeleteFeed = async (id: number) => {
-    if (!confirm("Remove this feed?")) return;
+    if (deletingId !== id) {
+      setDeletingId(id);
+      return;
+    }
+    const feed = feeds.find(f => f.id === id);
     try {
       await fetch(`/api/feeds/${id}`, { method: 'DELETE' });
+      if (selectedFeed === feed?.xmlUrl) setSelectedFeed(null);
       await fetchFeeds();
-      if (selectedFeed === feeds.find(f => f.id === id)?.xmlUrl) {
-        setSelectedFeed(null);
-      }
-    } catch (error) {
-      console.error("Error deleting feed:", error);
+      setDeletingId(null);
+      showToast(feed?.name ? `"${feed.name}" removed` : 'Feed removed', 'success');
+    } catch (err) {
+      console.error('Error deleting feed:', err);
+      showToast('Could not remove this feed. Please try again.', 'error');
+      setDeletingId(null);
     }
   };
 
@@ -127,19 +192,14 @@ export default function App() {
       const response = await fetch(`/api/rss?url=${encodeURIComponent(url)}`);
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.details || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.details || `Server error ${response.status}`);
       }
       const data: FeedData = await response.json();
       const feedType = feeds.find(f => f.xmlUrl === url)?.type || 'rss';
-      const itemsWithSource = data.items.map(item => ({
-        ...item,
-        source: data.title,
-        feedType
-      }));
-      setArticles(itemsWithSource);
-    } catch (error: any) {
-      console.error("Error fetching feed:", error);
-      setError(error.message);
+      setArticles(data.items.map(item => ({ ...item, source: data.title, feedType })));
+    } catch (err: any) {
+      console.error('Error fetching feed:', err);
+      setError(err.message);
       setArticles([]);
     } finally {
       setLoading(false);
@@ -151,36 +211,29 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      // Fetch top 10 feeds for the "All" view to provide better variety
       const topFeeds = feeds.slice(0, 10);
-      const allArticles: Article[] = [];
-
-      const feedPromises = topFeeds.map(async (feed) => {
-        try {
-          const response = await fetch(`/api/rss?url=${encodeURIComponent(feed.xmlUrl)}`);
-          if (!response.ok) return [];
-          const data: FeedData = await response.json();
-          return data.items.map(item => ({
-            ...item,
-            source: data.title,
-            feedType: feed.type
-          }));
-        } catch (e) {
-          console.error(`Failed to fetch ${feed.name}`, e);
-          return [];
-        }
-      });
-
-      const results = await Promise.all(feedPromises);
-      results.forEach(items => allArticles.push(...items));
-
-      setArticles(allArticles.sort((a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()));
-      if (allArticles.length === 0) {
-        setError("No articles found across your subscriptions.");
+      const results = await Promise.all(
+        topFeeds.map(async feed => {
+          try {
+            const response = await fetch(`/api/rss?url=${encodeURIComponent(feed.xmlUrl)}`);
+            if (!response.ok) return [];
+            const data: FeedData = await response.json();
+            return data.items.map(item => ({ ...item, source: data.title, feedType: feed.type }));
+          } catch {
+            return [];
+          }
+        })
+      );
+      const all = results.flat().sort(
+        (a, b) => new Date(b.pubDate).getTime() - new Date(a.pubDate).getTime()
+      );
+      setArticles(all);
+      if (all.length === 0) {
+        setError('No articles found across your subscriptions. Try refreshing or check your feeds.');
       }
-    } catch (error: any) {
-      console.error("Error fetching all feeds:", error);
-      setError("Failed to aggregate feeds. Please try again.");
+    } catch (err: any) {
+      console.error('Error fetching all feeds:', err);
+      setError("Couldn't load your feeds right now. Please try refreshing.");
     } finally {
       setLoading(false);
     }
@@ -188,20 +241,22 @@ export default function App() {
 
   const stripHtml = (html: string) => {
     const doc = new DOMParser().parseFromString(html, 'text/html');
-    return doc.body.textContent || "";
+    return doc.body.textContent || '';
   };
 
   const handleSummarize = async (article: Article) => {
     if (!hasApiKey) {
-      showToast('Gemini API key not set. Add GEMINI_API_KEY to your .env file to use AI features.');
+      showToast('AI features are disabled — add your Gemini API key to enable summaries.', 'warning');
       return;
     }
     setSummarizing(article.link);
     try {
       const summary = await summarizeArticle(article.title, article.content || article.contentSnippet);
-      setArticles(prev => prev.map(a => a.link === article.link ? { ...a, summary: stripHtml(summary) } : a));
+      setArticles(prev =>
+        prev.map(a => (a.link === article.link ? { ...a, summary: stripHtml(summary) } : a))
+      );
     } catch {
-      showToast('Failed to generate summary. Please try again.');
+      showToast("Couldn't generate a summary right now. Please try again.", 'error');
     } finally {
       setSummarizing(null);
     }
@@ -210,7 +265,7 @@ export default function App() {
   const handleGenerateDigest = async (type: 'daily' | 'weekly') => {
     if (articles.length === 0) return;
     if (!hasApiKey) {
-      showToast('Gemini API key not set. Add GEMINI_API_KEY to your .env file to use AI features.');
+      showToast('AI features are disabled — add your Gemini API key to enable digests.', 'warning');
       return;
     }
     setLoading(true);
@@ -218,9 +273,9 @@ export default function App() {
       const contextName = selectedFeed ? feeds.find(f => f.xmlUrl === selectedFeed)?.name : 'All Feeds';
       const digestArticles = articles.slice(0, 20).map(a => ({ title: a.title, source: a.source }));
       const content = await generateDigest(type, digestArticles);
-      setDigest({ type, content: `### ${contextName} - ${type.toUpperCase()} DIGEST\n\n${content}` });
+      setDigest({ type, content: `### ${contextName} — ${type === 'daily' ? 'Daily' : 'Weekly'} Digest\n\n${content}` });
     } catch {
-      showToast('Failed to generate digest. Please try again.');
+      showToast("Couldn't generate the digest right now. Please try again.", 'error');
     } finally {
       setLoading(false);
     }
@@ -228,434 +283,484 @@ export default function App() {
 
   const handleExportCSV = () => {
     if (articles.length === 0) return;
-
-    const digestArticles = articles.slice(0, 20);
-    const headers = ['Title', 'Source', 'Date', 'Link', 'Summary Snippet'];
-    const rows = digestArticles.map(a => [
+    const rows = articles.slice(0, 20).map(a => [
       `"${a.title.replace(/"/g, '""')}"`,
       `"${a.source.replace(/"/g, '""')}"`,
       `"${new Date(a.pubDate).toLocaleDateString()}"`,
       `"${a.link}"`,
-      `"${(a.summary || a.contentSnippet || "").replace(/"/g, '""').replace(/\n/g, ' ').substring(0, 300)}"`
+      `"${(a.summary || a.contentSnippet || '').replace(/"/g, '""').replace(/\n/g, ' ').substring(0, 300)}"`,
     ]);
-
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const csv = [['Title', 'Source', 'Date', 'Link', 'Summary'].join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `ai_reader_digest_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `ai_reader_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    showToast('Export ready — check your downloads.', 'success');
   };
 
   const filteredFeeds = feeds.filter(f =>
     f.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
   const rssFeeds = filteredFeeds.filter(f => f.type === 'rss');
   const xFeeds = filteredFeeds.filter(f => f.type === 'x');
+  const selectedFeedName = selectedFeed ? feeds.find(f => f.xmlUrl === selectedFeed)?.name : null;
+
+  const FeedRow = ({ feed, isX = false }: { feed: Feed; isX?: boolean }) => (
+    <div className="group flex items-center gap-1">
+      <button
+        onClick={() => { setSelectedFeed(feed.xmlUrl); setDeletingId(null); }}
+        className={`flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all text-left cursor-pointer ${
+          selectedFeed === feed.xmlUrl
+            ? 'bg-[#f5f5f5] text-[#171717]'
+            : 'text-[#737373] hover:bg-[#fafafa] hover:text-[#404040]'
+        }`}
+      >
+        {isX
+          ? <Twitter className={`w-3.5 h-3.5 flex-shrink-0 ${selectedFeed === feed.xmlUrl ? 'text-sky-500' : 'text-[#b0b0b0]'}`} />
+          : <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 transition-colors ${selectedFeed === feed.xmlUrl ? 'bg-indigo-500' : 'bg-[#d4d4d4] group-hover:bg-[#a3a3a3]'}`} />
+        }
+        <span className="truncate">{feed.name}</span>
+      </button>
+
+      {deletingId === feed.id ? (
+        <div className="flex items-center gap-1 pr-1 shrink-0">
+          <button
+            onClick={() => handleDeleteFeed(feed.id)}
+            className="px-2.5 py-1.5 text-[11px] font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg transition-colors cursor-pointer"
+          >
+            Remove
+          </button>
+          <button
+            onClick={() => setDeletingId(null)}
+            className="px-2.5 py-1.5 text-[11px] font-semibold text-[#737373] hover:bg-[#f5f5f5] rounded-lg transition-colors cursor-pointer"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => handleDeleteFeed(feed.id)}
+          className="opacity-0 group-hover:opacity-100 p-2 text-[#c0c0c0] hover:text-red-500 hover:bg-red-50 transition-all rounded-lg cursor-pointer"
+          title="Remove feed"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex h-screen bg-[#fafafa] text-[#171717] font-sans overflow-hidden">
-      {/* Sidebar */}
+
+      {/* ── Sidebar ─────────────────────────────────────────── */}
       <motion.aside
         initial={false}
         animate={{ width: isSidebarOpen ? 300 : 0, opacity: isSidebarOpen ? 1 : 0 }}
-        className="bg-white border-r border-[#e5e5e5] flex flex-col overflow-hidden shadow-sm z-20"
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+        className="bg-white border-r border-[#e5e5e5] flex flex-col overflow-hidden shadow-sm z-20 shrink-0"
       >
+        {/* Brand */}
         <div className="p-6 border-b border-[#e5e5e5] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#171717] rounded-xl flex items-center justify-center shadow-lg shadow-black/10">
-              <Rss className="w-6 h-6 text-white" />
+            <div className="w-9 h-9 bg-[#171717] rounded-xl flex items-center justify-center shadow-md shadow-black/10">
+              <Rss className="w-5 h-5 text-white" />
             </div>
-            <span className="font-bold tracking-tight text-xl">AI READER</span>
+            <span className="font-heading font-bold tracking-tight text-lg text-[#171717]">AI Reader</span>
           </div>
           <button
             onClick={() => setShowAddModal(true)}
-            className="p-2 hover:bg-[#f5f5f5] rounded-lg transition-colors text-[#171717]"
+            title="Add a new feed"
+            className="w-8 h-8 flex items-center justify-center hover:bg-[#f5f5f5] rounded-lg transition-colors text-[#737373] hover:text-[#171717] cursor-pointer"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4">
+        {/* Search */}
+        <div className="px-4 py-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#a3a3a3]" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#b0b0b0]" />
             <input
               type="text"
-              placeholder="Search feeds..."
-              className="w-full pl-9 pr-4 py-2.5 bg-[#f5f5f5] rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#171717]/5 transition-all"
+              placeholder="Search feeds…"
+              className="w-full pl-8 pr-3 py-2 bg-[#f5f5f5] rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500/15 transition-all placeholder:text-[#b0b0b0]"
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={e => setSearchTerm(e.target.value)}
             />
           </div>
         </div>
 
-        <nav className="flex-1 overflow-y-auto p-3 space-y-6">
-          <div className="space-y-1">
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-3 pb-4 space-y-5">
+          {/* All Articles */}
+          <div>
             <button
-              onClick={() => setSelectedFeed(null)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${!selectedFeed ? 'bg-[#171717] text-white shadow-md shadow-black/10' : 'text-[#737373] hover:bg-[#fafafa]'}`}
+              onClick={() => { setSelectedFeed(null); setDeletingId(null); }}
+              className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${
+                !selectedFeed
+                  ? 'bg-[#171717] text-white shadow-md shadow-black/10'
+                  : 'text-[#737373] hover:bg-[#fafafa] hover:text-[#404040]'
+              }`}
             >
               <LayoutGrid className="w-4 h-4" />
               All Articles
+              {feeds.length > 0 && (
+                <span className={`ml-auto text-[11px] font-medium ${!selectedFeed ? 'text-white/50' : 'text-[#d4d4d4]'}`}>
+                  {feeds.length}
+                </span>
+              )}
             </button>
           </div>
 
+          {/* RSS Categories */}
           {categories.map(category => {
-            const categoryFeeds = rssFeeds.filter(f => (f.category || 'General') === category);
-            if (categoryFeeds.length === 0) return null;
-
+            const catFeeds = rssFeeds.filter(f => (f.category || 'General') === category);
+            if (catFeeds.length === 0) return null;
             return (
-              <div key={category} className="space-y-2">
-                <div className="px-4 text-[10px] font-bold text-[#a3a3a3] uppercase tracking-[0.2em]">{category}</div>
-                <div className="space-y-1">
-                  {categoryFeeds.map(feed => (
-                    <div key={feed.id} className="group flex items-center gap-1">
-                      <button
-                        onClick={() => setSelectedFeed(feed.xmlUrl)}
-                        className={`flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${selectedFeed === feed.xmlUrl ? 'bg-[#f5f5f5] text-[#171717]' : 'text-[#737373] hover:bg-[#fafafa]'}`}
-                      >
-                        <div className={`w-2 h-2 rounded-full ${selectedFeed === feed.xmlUrl ? 'bg-indigo-500' : 'bg-[#d4d4d4]'}`} />
-                        <span className="truncate">{feed.name}</span>
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFeed(feed.id)}
-                        className="opacity-0 group-hover:opacity-100 p-2 text-[#a3a3a3] hover:text-red-500 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+              <div key={category} className="space-y-0.5">
+                <div className="px-4 py-1 flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-[#b0b0b0] uppercase tracking-[0.2em]">{category}</span>
+                  <span className="text-[10px] font-medium text-[#d4d4d4]">{catFeeds.length}</span>
                 </div>
+                {catFeeds.map(feed => <FeedRow key={feed.id} feed={feed} />)}
               </div>
             );
           })}
 
+          {/* X Feeds */}
           {xFeeds.length > 0 && (
-            <div className="space-y-2">
-              <div className="px-4 text-[10px] font-bold text-[#a3a3a3] uppercase tracking-[0.2em]">X Feeds</div>
-              <div className="space-y-1">
-                {xFeeds.map(feed => (
-                  <div key={feed.id} className="group flex items-center gap-1">
-                    <button
-                      onClick={() => setSelectedFeed(feed.xmlUrl)}
-                      className={`flex-1 flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all text-left ${selectedFeed === feed.xmlUrl ? 'bg-[#f5f5f5] text-[#171717]' : 'text-[#737373] hover:bg-[#fafafa]'}`}
-                    >
-                      <Twitter className={`w-4 h-4 ${selectedFeed === feed.xmlUrl ? 'text-sky-500' : 'text-[#a3a3a3]'}`} />
-                      <span className="truncate">{feed.name}</span>
-                    </button>
-                    <button
-                      onClick={() => handleDeleteFeed(feed.id)}
-                      className="opacity-0 group-hover:opacity-100 p-2 text-[#a3a3a3] hover:text-red-500 transition-all"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+            <div className="space-y-0.5">
+              <div className="px-4 py-1 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-[#b0b0b0] uppercase tracking-[0.2em]">X / Twitter</span>
+                <span className="text-[10px] font-medium text-[#d4d4d4]">{xFeeds.length}</span>
               </div>
+              {xFeeds.map(feed => <FeedRow key={feed.id} feed={feed} isX />)}
             </div>
           )}
         </nav>
       </motion.aside>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      {/* ── Main ────────────────────────────────────────────── */}
+      <main className="flex-1 flex flex-col overflow-hidden">
+
         {/* Header */}
-        <header className="h-20 border-b border-[#e5e5e5] bg-white/80 backdrop-blur-md flex items-center justify-between px-8 sticky top-0 z-10">
-          <div className="flex items-center gap-6">
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-2.5 hover:bg-[#f5f5f5] rounded-xl transition-colors">
-              {isSidebarOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+        <header className="h-[68px] border-b border-[#e5e5e5] bg-white/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors cursor-pointer text-[#737373] hover:text-[#171717]"
+              title={isSidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+            >
+              {isSidebarOpen ? <X className="w-4.5 h-4.5" /> : <Menu className="w-4.5 h-4.5" />}
             </button>
             <div>
-              <h2 className="font-bold text-xl tracking-tight">
-                {selectedFeed ? feeds.find(f => f.xmlUrl === selectedFeed)?.name : 'Latest Updates'}
+              <h2 className="font-heading font-semibold text-[15px] tracking-tight leading-tight">
+                {selectedFeedName ?? 'Latest Updates'}
               </h2>
-              <p className="text-xs text-[#a3a3a3] font-medium uppercase tracking-wider mt-0.5">
-                {selectedFeed ? 'Source Feed' : 'Curated from all subscriptions'}
+              <p className="text-[11px] text-[#b0b0b0] mt-0.5">
+                {selectedFeedName
+                  ? articles.length > 0 ? `${articles.length} articles` : 'Loading…'
+                  : 'Your personalized feed'}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={() => selectedFeed ? fetchFeed(selectedFeed) : fetchAllFeeds()}
-              className="p-2.5 hover:bg-[#f5f5f5] rounded-xl transition-colors text-[#a3a3a3] hover:text-[#171717]"
-              title="Refresh Feed"
+              className="p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors text-[#b0b0b0] hover:text-[#171717] cursor-pointer"
+              title="Refresh"
             >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
             <button
               onClick={handleExportCSV}
-              className="p-2.5 hover:bg-[#f5f5f5] rounded-xl transition-colors text-[#a3a3a3] hover:text-[#171717]"
+              disabled={articles.length === 0}
+              className="p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors text-[#b0b0b0] hover:text-[#171717] cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title="Export to CSV"
             >
-              <FileText className="w-5 h-5" />
+              <FileText className="w-4 h-4" />
             </button>
+            <div className="w-px h-5 bg-[#e5e5e5] mx-1" />
             <button
               onClick={() => handleGenerateDigest('daily')}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#171717] text-white hover:bg-[#404040] rounded-xl text-xs font-bold transition-all shadow-lg shadow-black/10"
+              disabled={loading || articles.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-[#171717] text-white hover:bg-[#333] rounded-xl text-sm font-semibold transition-all shadow-md shadow-black/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <Sparkles className="w-4 h-4" />
-              Generate Daily Digest
+              <Sparkles className="w-3.5 h-3.5" />
+              Daily Digest
             </button>
           </div>
         </header>
 
-        {/* Content Area */}
+        {/* Content */}
         <div className="flex-1 overflow-y-auto bg-[#fafafa]">
-          <div className="max-w-5xl mx-auto p-8 md:p-12">
+          <div className="max-w-3xl mx-auto px-6 py-8 md:px-10 md:py-10">
+
+            {/* Error Banner */}
             {error && !loading && (
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="mb-8 p-6 bg-red-50 border border-red-100 rounded-3xl flex items-center gap-4 text-red-900"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-3"
               >
-                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <X className="w-6 h-6 text-red-600" />
-                </div>
-                <div>
-                  <p className="font-bold">Feed Loading Issue</p>
-                  <p className="text-sm opacity-80">{error}</p>
+                <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-red-900">Couldn't load this feed</p>
+                  <p className="text-xs text-red-700/60 mt-0.5 break-words">{error}</p>
                 </div>
                 <button
                   onClick={() => selectedFeed ? fetchFeed(selectedFeed) : fetchAllFeeds()}
-                  className="ml-auto px-4 py-2 bg-white hover:bg-red-100 rounded-xl text-xs font-bold transition-all border border-red-100"
+                  className="shrink-0 px-3 py-1.5 bg-white hover:bg-red-50 border border-red-100 rounded-xl text-xs font-semibold text-red-700 transition-colors cursor-pointer"
                 >
-                  Retry
+                  Try again
                 </button>
               </motion.div>
             )}
 
+            {/* ── Loading: Skeleton ── */}
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-32 space-y-6">
-                <div className="relative">
-                  <Loader2 className="w-12 h-12 animate-spin text-indigo-500" />
-                  <div className="absolute inset-0 blur-xl bg-indigo-500/20 animate-pulse" />
+              <div className="space-y-5">
+                <div className="flex items-center justify-between">
+                  <div className="h-3.5 w-24 bg-[#e8e8e8] rounded animate-pulse" />
+                  <div className="h-3.5 w-16 bg-[#e8e8e8] rounded animate-pulse" />
                 </div>
-                <div className="text-center space-y-1">
-                  <p className="text-[#171717] font-bold text-lg">Curating your news...</p>
-                  <p className="text-[#a3a3a3] text-sm">Fetching the latest stories from your feeds</p>
-                </div>
+                {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
               </div>
+
             ) : digest ? (
+              /* ── Digest View ── */
               <motion.div
-                initial={{ opacity: 0, y: 40 }}
+                initial={{ opacity: 0, y: 32 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-[48px] border border-[#e5e5e5] shadow-2xl shadow-black/5 overflow-hidden"
+                className="bg-white rounded-[40px] border border-[#e5e5e5] shadow-2xl shadow-black/5 overflow-hidden"
               >
-                {/* Digest Header - Refined Editorial */}
-                <div className="relative h-[500px] bg-[#050505] flex flex-col justify-center items-center text-center p-12 overflow-hidden">
-                  <div className="absolute inset-0 opacity-40">
+                {/* Hero */}
+                <div className="relative h-[440px] bg-[#050505] flex flex-col justify-center items-center text-center p-12 overflow-hidden">
+                  <div className="absolute inset-0 opacity-35">
                     <img
                       src="https://picsum.photos/seed/editorial/1920/1080?blur=10"
                       className="w-full h-full object-cover"
-                      alt="Digest Background"
+                      alt=""
                       referrerPolicy="no-referrer"
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-transparent via-[#050505]/60 to-[#050505]" />
                   </div>
-
-                  <div className="relative z-20 max-w-3xl space-y-8">
-                    <motion.div
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="flex flex-col items-center gap-4"
-                    >
-                      <div className="px-4 py-1.5 bg-indigo-500/20 backdrop-blur-md border border-indigo-500/30 text-indigo-400 text-[10px] font-black uppercase tracking-[0.3em] rounded-full">
-                        Intelligence Report
-                      </div>
-                      <span className="text-white/40 text-xs font-bold uppercase tracking-[0.4em]">
+                  <div className="relative z-20 max-w-2xl space-y-6">
+                    <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col items-center gap-3">
+                      <span className="px-3 py-1 bg-indigo-500/20 backdrop-blur-md border border-indigo-500/30 text-indigo-400 text-[10px] font-bold uppercase tracking-[0.25em] rounded-full">
+                        AI Intelligence Report
+                      </span>
+                      <span className="text-white/40 text-xs font-medium uppercase tracking-[0.35em]">
                         {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                       </span>
                     </motion.div>
-
-                    <h1 className="text-7xl md:text-9xl font-black text-white tracking-tighter leading-[0.8] uppercase italic">
-                      The<br/>Digest
+                    <h1 className="font-heading text-[80px] md:text-[100px] font-bold text-white tracking-tighter leading-[0.85] uppercase italic">
+                      The<br />Digest
                     </h1>
-
-                    <p className="text-white/60 text-lg font-medium tracking-wide max-w-xl mx-auto leading-relaxed">
-                      A synthesized overview of the most critical developments across your selected information streams.
+                    <p className="text-white/55 text-base font-medium max-w-sm mx-auto leading-relaxed">
+                      A synthesized overview of the most important developments across your subscriptions.
                     </p>
                   </div>
-
                   <button
                     onClick={() => setDigest(null)}
-                    className="absolute top-12 right-12 w-14 h-14 bg-white/5 hover:bg-white/10 backdrop-blur-xl rounded-full flex items-center justify-center text-white transition-all border border-white/10 group"
+                    className="absolute top-10 right-10 w-11 h-11 bg-white/8 hover:bg-white/15 backdrop-blur-xl rounded-full flex items-center justify-center text-white/70 hover:text-white transition-all border border-white/10 cursor-pointer"
+                    title="Close digest"
                   >
-                    <X className="w-6 h-6 group-hover:scale-110 transition-transform" />
+                    <X className="w-4.5 h-4.5" />
                   </button>
                 </div>
 
-                <div className="p-12 md:p-24 bg-white">
-                  <div className="max-w-4xl mx-auto">
-                    <div className="prose prose-neutral prose-xl max-w-none
-                      prose-headings:font-black prose-headings:tracking-tight prose-headings:uppercase prose-headings:italic
-                      prose-p:text-[#262626] prose-p:leading-[1.8] prose-p:font-serif
-                      prose-strong:text-indigo-600 prose-strong:font-black
-                      prose-li:text-[#404040] prose-li:leading-relaxed
-                      prose-hr:border-[#e5e5e5]
-                    ">
+                {/* Body */}
+                <div className="px-10 py-14 md:px-20 md:py-20 bg-white">
+                  <div className="max-w-3xl mx-auto">
+                    <div className="prose prose-neutral prose-lg max-w-none
+                      prose-headings:font-heading prose-headings:font-bold prose-headings:tracking-tight
+                      prose-p:text-[#404040] prose-p:leading-[1.8]
+                      prose-strong:text-indigo-600 prose-strong:font-bold
+                      prose-li:text-[#525252] prose-li:leading-relaxed
+                      prose-hr:border-[#e5e5e5]"
+                    >
                       <Markdown>{digest.content}</Markdown>
                     </div>
 
-                    <div className="mt-24 pt-12 border-t border-[#e5e5e5] flex flex-col md:flex-row items-center justify-between gap-8">
-                      <div className="flex items-center gap-6">
-                        <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center">
-                          <Sparkles className="w-8 h-8 text-indigo-600" />
+                    <div className="mt-16 pt-10 border-t border-[#e5e5e5] flex flex-col sm:flex-row items-center justify-between gap-6">
+                      <div className="flex items-center gap-4">
+                        <div className="w-11 h-11 bg-indigo-50 rounded-xl flex items-center justify-center">
+                          <Sparkles className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="text-sm font-black uppercase tracking-widest text-[#171717]">Synthesized by Gemini</p>
-                          <p className="text-xs text-[#737373] font-medium">Based on {articles.length} recent articles</p>
+                          <p className="text-sm font-semibold text-[#171717]">Generated by Gemini AI</p>
+                          <p className="text-xs text-[#a3a3a3] mt-0.5">Based on {articles.length} recent articles</p>
                         </div>
                       </div>
-
-                      <div className="flex items-center gap-4">
-                        <button className="px-8 py-4 bg-[#f5f5f5] hover:bg-[#e5e5e5] rounded-2xl text-xs font-black uppercase tracking-widest transition-all">
-                          Share Report
-                        </button>
-                        <button
-                          onClick={handleExportCSV}
-                          className="px-8 py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-2xl text-xs font-black uppercase tracking-widest transition-all shadow-xl shadow-indigo-500/20"
-                        >
-                          Export Data
-                        </button>
-                      </div>
+                      <button
+                        onClick={handleExportCSV}
+                        className="px-6 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-indigo-500/20 cursor-pointer"
+                      >
+                        Export data
+                      </button>
                     </div>
                   </div>
                 </div>
               </motion.div>
+
+            ) : articles.length === 0 ? (
+              /* ── Empty State ── */
+              <div className="flex flex-col items-center justify-center py-28 gap-5 text-center">
+                <div className="w-16 h-16 bg-[#f5f5f5] rounded-2xl flex items-center justify-center">
+                  <Rss className="w-7 h-7 text-[#d4d4d4]" />
+                </div>
+                <div>
+                  <p className="font-heading font-semibold text-[#171717] text-lg">
+                    {feeds.length === 0 ? 'No subscriptions yet' : 'No articles to show'}
+                  </p>
+                  <p className="text-sm text-[#a3a3a3] mt-1.5 max-w-xs leading-relaxed">
+                    {feeds.length === 0
+                      ? 'Add your first RSS feed or X profile to start reading.'
+                      : selectedFeed
+                        ? 'This feed appears to be empty or temporarily unavailable.'
+                        : 'Select a feed from the sidebar, or try refreshing.'}
+                  </p>
+                </div>
+                {feeds.length === 0 && (
+                  <button
+                    onClick={() => setShowAddModal(true)}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-[#171717] text-white rounded-xl text-sm font-semibold hover:bg-[#333] transition-colors cursor-pointer shadow-md shadow-black/10"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add your first feed
+                  </button>
+                )}
+              </div>
+
             ) : (
-              <div className="space-y-12">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-black uppercase tracking-[0.3em] text-[#a3a3a3]">
-                    {selectedFeed === 'https://simonwillison.net/atom/everything/' ? 'Engineering Logs' : 'Recent Stories'}
+              /* ── Article List ── */
+              <div className="space-y-5">
+                <div className="flex items-center justify-between pb-1">
+                  <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-[#b0b0b0]">
+                    Latest stories
                   </h3>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs font-bold text-[#d4d4d4]">{articles.length} Articles</span>
-                  </div>
+                  <span className="text-xs text-[#d4d4d4]">
+                    {articles.length} {articles.length === 1 ? 'article' : 'articles'}
+                  </span>
                 </div>
 
-                <div className={selectedFeed === 'https://simonwillison.net/atom/everything/' ? "grid grid-cols-1 lg:grid-cols-2 gap-6" : "grid gap-8"}>
-                  <AnimatePresence mode="popLayout">
-                    {articles.map((article, idx) => {
-                      const isX = article.feedType === 'x';
-                      const isSimon = selectedFeed === 'https://simonwillison.net/atom/everything/';
-
-                      return (
-                        <motion.article
-                          key={`${article.link}-${article.pubDate}-${idx}`}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.03 }}
-                          className={`group relative p-8 rounded-[32px] border transition-all duration-500 ${
-                            isSimon
-                              ? 'bg-white border-[#e5e5e5] hover:border-indigo-500 hover:shadow-lg'
-                              : isX
-                                ? 'bg-white border-sky-100 hover:border-sky-400 hover:shadow-xl hover:shadow-sky-500/5'
-                                : 'bg-white border-[#e5e5e5] hover:border-[#171717] hover:shadow-2xl hover:shadow-black/5'
-                          }`}
-                        >
-                          <div className={isSimon ? "flex flex-col gap-4" : "flex flex-col md:flex-row gap-8"}>
-                            <div className="flex-1 space-y-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                  <span className={`px-2.5 py-1 text-[9px] font-black uppercase tracking-widest rounded-md transition-colors ${
-                                    isX
-                                      ? 'bg-sky-50 text-sky-600'
-                                      : 'bg-[#f5f5f5] text-[#737373] group-hover:bg-indigo-50 group-hover:text-indigo-600'
-                                  }`}>
-                                    {isX ? <Twitter className="w-3 h-3 inline mr-1" /> : null}
-                                    {article.source}
-                                  </span>
-                                  <span className="text-[10px] font-bold text-[#d4d4d4] uppercase tracking-wider">
-                                    {new Date(article.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                  </span>
-                                </div>
-                                {isX && (
-                                  <div className="text-sky-400">
-                                    <Twitter className="w-5 h-5 fill-current" />
-                                  </div>
-                                )}
-                              </div>
-
-                              {isX ? (
-                                <div className="text-lg md:text-xl font-medium leading-relaxed text-[#171717] whitespace-pre-wrap">
-                                  {article.title}
-                                </div>
-                              ) : (
-                                <h3 className={`${isSimon ? 'text-xl' : 'text-2xl'} font-bold leading-tight tracking-tight group-hover:text-indigo-600 transition-colors`}>
-                                  {article.title}
-                                </h3>
-                              )}
-
-                              {!isX && (
-                                <p className={`text-[#737373] text-sm leading-relaxed ${isSimon ? 'line-clamp-2' : 'line-clamp-3'}`}>
-                                  {stripHtml(article.contentSnippet || article.content || "").substring(0, 200) || "No description available."}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className={`flex items-center gap-4 ${isSimon ? 'pt-2' : 'pt-4'}`}>
-                                <button
-                                  onClick={() => handleSummarize(article)}
-                                  disabled={summarizing === article.link}
-                                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all disabled:opacity-50 ${
-                                    isX
-                                      ? 'bg-sky-50 text-sky-600 hover:bg-sky-100'
-                                      : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
-                                  }`}
-                                >
-                                  {summarizing === article.link ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                                  {article.summary ? 'Regenerate' : 'AI Summary'}
-                                </button>
-                                <a
-                                  href={article.link}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="flex items-center gap-2 px-5 py-2.5 bg-[#f5f5f5] text-[#171717] hover:bg-[#e5e5e5] rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-                                >
-                                  {isX ? 'View Post' : 'Read Full'} <ExternalLink className="w-3 h-3" />
-                                </a>
-                            </div>
-
-                            {article.summary && !isSimon && (
-                              <motion.div
-                                initial={{ opacity: 0, x: 20 }}
-                                animate={{ opacity: 1, x: 0 }}
-                                className={`md:w-80 p-6 rounded-3xl border flex flex-col justify-center ${
-                                  isX
-                                    ? 'bg-sky-50/30 border-sky-100/50'
-                                    : 'bg-indigo-50/30 border-indigo-100/50'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2 mb-3">
-                                  <Sparkles className={`w-3 h-3 ${isX ? 'text-sky-500' : 'text-indigo-500'}`} />
-                                  <span className={`text-[9px] font-black uppercase tracking-widest ${isX ? 'text-sky-500' : 'text-indigo-500'}`}>
-                                    {isX ? 'Post Insight' : 'Key Takeaway'}
-                                  </span>
-                                </div>
-                                <p className={`text-sm leading-relaxed italic font-medium ${isX ? 'text-sky-900' : 'text-indigo-900'}`}>
-                                  "{stripHtml(article.summary)}"
-                                </p>
-                              </motion.div>
-                            )}
+                <AnimatePresence mode="popLayout">
+                  {articles.map((article, idx) => {
+                    const isX = article.feedType === 'x';
+                    return (
+                      <motion.article
+                        key={`${article.link}-${idx}`}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(idx * 0.025, 0.3), ease: 'easeOut' }}
+                        className={`group p-6 rounded-3xl border transition-all duration-250 ${
+                          isX
+                            ? 'bg-white border-sky-100 hover:border-sky-300 hover:shadow-md hover:shadow-sky-500/5'
+                            : 'bg-white border-[#e8e8e8] hover:border-[#c8c8c8] hover:shadow-md hover:shadow-black/5'
+                        }`}
+                      >
+                        {/* Source + Date */}
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors ${
+                              isX
+                                ? 'bg-sky-50 text-sky-600'
+                                : 'bg-[#f5f5f5] text-[#525252] group-hover:bg-indigo-50 group-hover:text-indigo-600'
+                            }`}>
+                              {isX && <Twitter className="w-3 h-3" />}
+                              <span className="truncate max-w-[180px]">{article.source}</span>
+                            </span>
+                            <span className="text-xs text-[#d4d4d4] tabular-nums whitespace-nowrap">
+                              {new Date(article.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </span>
                           </div>
-                        </motion.article>
-                      );
-                    })}
-                  </AnimatePresence>
-                </div>
+                          {isX && <Twitter className="w-4 h-4 text-sky-400 fill-current shrink-0" />}
+                        </div>
+
+                        {/* Title */}
+                        {isX ? (
+                          <p className="text-base leading-relaxed text-[#171717] whitespace-pre-wrap mb-4">
+                            {article.title}
+                          </p>
+                        ) : (
+                          <h3 className="font-heading text-xl font-semibold leading-snug tracking-tight group-hover:text-indigo-600 transition-colors mb-3">
+                            {article.title}
+                          </h3>
+                        )}
+
+                        {/* Snippet */}
+                        {!isX && (
+                          <p className="text-sm text-[#737373] leading-relaxed line-clamp-2 mb-4">
+                            {stripHtml(article.contentSnippet || article.content || '').substring(0, 220) || 'No description available.'}
+                          </p>
+                        )}
+
+                        {/* AI Summary */}
+                        {article.summary && (
+                          <motion.div
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className={`p-4 rounded-2xl border mb-4 ${
+                              isX ? 'bg-sky-50/50 border-sky-100' : 'bg-indigo-50/50 border-indigo-100/80'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 mb-2">
+                              <Sparkles className={`w-3 h-3 ${isX ? 'text-sky-500' : 'text-indigo-500'}`} />
+                              <span className={`text-[10px] font-bold uppercase tracking-widest ${isX ? 'text-sky-500' : 'text-indigo-500'}`}>
+                                AI Summary
+                              </span>
+                            </div>
+                            <p className={`text-sm leading-relaxed ${isX ? 'text-sky-900' : 'text-indigo-900'}`}>
+                              {stripHtml(article.summary)}
+                            </p>
+                          </motion.div>
+                        )}
+
+                        {/* Actions */}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleSummarize(article)}
+                            disabled={summarizing === article.link}
+                            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                              isX
+                                ? 'bg-sky-50 text-sky-600 hover:bg-sky-100'
+                                : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                            }`}
+                          >
+                            {summarizing === article.link
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Sparkles className="w-3.5 h-3.5" />
+                            }
+                            {article.summary ? 'Regenerate' : 'Summarize'}
+                          </button>
+                          <a
+                            href={article.link}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-[#f5f5f5] text-[#525252] hover:bg-[#ebebeb] rounded-xl text-sm font-medium transition-colors cursor-pointer"
+                          >
+                            {isX ? 'View post' : 'Read article'}
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </motion.article>
+                    );
+                  })}
+                </AnimatePresence>
               </div>
             )}
           </div>
         </div>
       </main>
 
-      {/* Add Feed Modal */}
+      {/* ── Add Feed Modal ───────────────────────────────────── */}
       <AnimatePresence>
         {showAddModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
@@ -667,89 +772,105 @@ export default function App() {
               className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-[32px] shadow-2xl overflow-hidden"
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ ease: 'easeOut', duration: 0.18 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl shadow-black/15 overflow-hidden"
             >
-              <div className="p-8 space-y-8">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-2xl font-black uppercase tracking-tight">Add New Feed</h3>
-                  <button onClick={() => setShowAddModal(false)} className="p-2 hover:bg-[#f5f5f5] rounded-full transition-colors">
-                    <X className="w-5 h-5" />
+              <div className="p-7 space-y-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-heading text-xl font-semibold tracking-tight">Subscribe to a feed</h3>
+                    <p className="text-sm text-[#a3a3a3] mt-1">Add an RSS feed or X profile to follow</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddModal(false)}
+                    className="p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors cursor-pointer text-[#737373] hover:text-[#171717] mt-0.5"
+                  >
+                    <X className="w-4.5 h-4.5" />
                   </button>
                 </div>
 
-                <form onSubmit={handleAddFeed} className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="flex p-1 bg-[#f5f5f5] rounded-2xl">
-                      <button
-                        type="button"
-                        onClick={() => setNewFeed(prev => ({ ...prev, type: 'rss' }))}
-                        className={`flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${newFeed.type === 'rss' ? 'bg-white text-[#171717] shadow-sm' : 'text-[#a3a3a3]'}`}
-                      >
-                        RSS Feed
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setNewFeed(prev => ({ ...prev, type: 'x' }))}
-                        className={`flex-1 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${newFeed.type === 'x' ? 'bg-white text-sky-500 shadow-sm' : 'text-[#a3a3a3]'}`}
-                      >
-                        X (Twitter)
-                      </button>
-                    </div>
+                <form onSubmit={handleAddFeed} className="space-y-4">
+                  {/* Type toggle */}
+                  <div className="flex p-1 bg-[#f5f5f5] rounded-2xl gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setNewFeed(prev => ({ ...prev, type: 'rss' }))}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${newFeed.type === 'rss' ? 'bg-white text-[#171717] shadow-sm' : 'text-[#a3a3a3] hover:text-[#737373]'}`}
+                    >
+                      RSS Feed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewFeed(prev => ({ ...prev, type: 'x' }))}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer ${newFeed.type === 'x' ? 'bg-white text-sky-500 shadow-sm' : 'text-[#a3a3a3] hover:text-[#737373]'}`}
+                    >
+                      X / Twitter
+                    </button>
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#a3a3a3] ml-1">Category</label>
-                      <select
-                        className="w-full px-5 py-3.5 bg-[#f5f5f5] rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#171717]/5 transition-all appearance-none"
-                        value={newFeed.category}
-                        onChange={(e) => setNewFeed(prev => ({ ...prev, category: e.target.value }))}
-                      >
-                        <option value="General">General</option>
-                        <option value="Engineering">Engineering</option>
-                        <option value="Tech">Tech</option>
-                        <option value="Security">Security</option>
-                        <option value="Culture">Culture</option>
-                        <option value="Science">Science</option>
-                        <option value="Personal">Personal</option>
-                        <option value="AI">AI</option>
-                        <option value="Hardware">Hardware</option>
-                      </select>
-                    </div>
+                  {/* Category */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#525252]">Category</label>
+                    <select
+                      className="w-full px-4 py-3 bg-[#f5f5f5] rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all appearance-none cursor-pointer"
+                      value={newFeed.category}
+                      onChange={e => setNewFeed(prev => ({ ...prev, category: e.target.value }))}
+                    >
+                      <option value="General">General</option>
+                      <option value="Engineering">Engineering</option>
+                      <option value="Tech">Tech</option>
+                      <option value="Security">Security</option>
+                      <option value="Culture">Culture</option>
+                      <option value="Science">Science</option>
+                      <option value="Personal">Personal</option>
+                      <option value="AI">AI</option>
+                      <option value="Hardware">Hardware</option>
+                    </select>
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#a3a3a3] ml-1">Feed Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. My Favorite Blog"
-                        className="w-full px-5 py-3.5 bg-[#f5f5f5] rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#171717]/5 transition-all"
-                        value={newFeed.name}
-                        onChange={(e) => setNewFeed(prev => ({ ...prev, name: e.target.value }))}
-                      />
-                    </div>
+                  {/* Name */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#525252]">
+                      {newFeed.type === 'rss' ? 'Feed name' : 'Display name'}
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder={newFeed.type === 'rss' ? "e.g. Simon Willison's Blog" : 'e.g. Paul Graham'}
+                      className="w-full px-4 py-3 bg-[#f5f5f5] rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-[#c0c0c0]"
+                      value={newFeed.name}
+                      onChange={e => setNewFeed(prev => ({ ...prev, name: e.target.value }))}
+                    />
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-[#a3a3a3] ml-1">
-                        {newFeed.type === 'rss' ? 'RSS URL' : 'X Profile URL'}
-                      </label>
-                      <input
-                        type="url"
-                        required
-                        placeholder={newFeed.type === 'rss' ? 'https://example.com/feed.xml' : 'https://x.com/username'}
-                        className="w-full px-5 py-3.5 bg-[#f5f5f5] rounded-2xl text-sm font-medium outline-none focus:ring-2 focus:ring-[#171717]/5 transition-all"
-                        value={newFeed.url}
-                        onChange={(e) => setNewFeed(prev => ({ ...prev, url: e.target.value }))}
-                      />
-                    </div>
+                  {/* URL */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-[#525252]">
+                      {newFeed.type === 'rss' ? 'Feed URL' : 'Profile URL'}
+                    </label>
+                    <input
+                      type="url"
+                      required
+                      placeholder={newFeed.type === 'rss' ? 'https://example.com/feed.xml' : 'https://x.com/username'}
+                      className="w-full px-4 py-3 bg-[#f5f5f5] rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-[#c0c0c0]"
+                      value={newFeed.url}
+                      onChange={e => setNewFeed(prev => ({ ...prev, url: e.target.value }))}
+                    />
+                    {newFeed.type === 'x' && (
+                      <p className="text-xs text-[#a3a3a3] px-1 mt-1">
+                        We'll automatically convert this to an RSS feed via Nitter.
+                      </p>
+                    )}
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full py-4 bg-[#171717] text-white rounded-2xl text-xs font-black uppercase tracking-[0.2em] hover:bg-[#404040] transition-all shadow-xl shadow-black/10"
+                    className="w-full py-3.5 bg-[#171717] text-white rounded-xl text-sm font-semibold hover:bg-[#333] transition-colors shadow-md shadow-black/10 cursor-pointer mt-2"
                   >
-                    Add to Subscriptions
+                    Subscribe
                   </button>
                 </form>
               </div>
@@ -758,21 +879,30 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Toast notifications */}
-      <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
+      {/* ── Toast Notifications ──────────────────────────────── */}
+      <div className="fixed bottom-5 right-5 z-[100] flex flex-col gap-2 pointer-events-none">
         <AnimatePresence>
-          {toasts.map(toast => (
-            <motion.div
-              key={toast.id}
-              initial={{ opacity: 0, y: 16, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.95 }}
-              className="flex items-center gap-3 px-5 py-3.5 bg-[#171717] text-white rounded-2xl shadow-2xl shadow-black/20 text-sm font-medium max-w-sm pointer-events-auto"
-            >
-              <Sparkles className="w-4 h-4 text-indigo-400 shrink-0" />
-              <span>{toast.message}</span>
-            </motion.div>
-          ))}
+          {toasts.map(toast => {
+            const Icon = TOAST_ICON[toast.type];
+            const isInfo = toast.type === 'info';
+            return (
+              <motion.div
+                key={toast.id}
+                initial={{ opacity: 0, y: 12, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                transition={{ ease: 'easeOut', duration: 0.2 }}
+                className={`flex items-center gap-3 pl-4 pr-5 py-3 rounded-2xl shadow-xl text-sm font-medium max-w-xs pointer-events-auto border ${
+                  isInfo
+                    ? 'bg-[#171717] text-white border-white/5'
+                    : 'bg-white text-[#404040] border-[#e5e5e5] shadow-black/8'
+                }`}
+              >
+                <Icon className={`w-4 h-4 shrink-0 ${TOAST_ICON_COLOR[toast.type]}`} />
+                <span className={isInfo ? 'text-white/90' : ''}>{toast.message}</span>
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
     </div>

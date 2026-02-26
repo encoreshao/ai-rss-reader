@@ -2,7 +2,8 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --font-display: "Inter", sans-serif;
+  --font-sans: "Inter", sans-serif;
+  --font-heading: "Space Grotesk", sans-serif;
   --radius-4xl: 2.5rem;
   --radius-5xl: 3rem;
 }

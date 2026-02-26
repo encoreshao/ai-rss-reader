@@ -8,7 +8,10 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "deploy": "bash scripts/deploy.sh",
+    "deploy:full": "bash scripts/deploy.sh --full",
+    "restart": "bash scripts/deploy.sh --restart"
   },
   "dependencies": {
     "@google/genai": "^1.29.0",
