@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background: dark rounded square -->
+  <rect width="512" height="512" rx="112" ry="112" fill="#171717"/>
+
+  <!-- RSS signal arcs (bottom-left anchor) -->
+  <!-- Dot -->
+  <circle cx="148" cy="364" r="32" fill="white"/>
+  <!-- Inner arc -->
+  <path d="M148 284 a96 96 0 0 1 96 96" fill="none" stroke="white" stroke-width="44" stroke-linecap="round"/>
+  <!-- Outer arc -->
+  <path d="M148 196 a184 184 0 0 1 184 184" fill="none" stroke="white" stroke-width="44" stroke-linecap="round"/>
+
+  <!-- AI spark — top-right, indigo -->
+  <g transform="translate(322, 122)">
+    <!-- Vertical bar of the spark -->
+    <line x1="42" y1="0" x2="42" y2="84" stroke="#6366f1" stroke-width="18" stroke-linecap="round"/>
+    <!-- Horizontal bar -->
+    <line x1="0" y1="42" x2="84" y2="42" stroke="#6366f1" stroke-width="18" stroke-linecap="round"/>
+    <!-- Diagonal ticks (sparkle) -->
+    <line x1="12" y1="12" x2="28" y2="28" stroke="#6366f1" stroke-width="14" stroke-linecap="round"/>
+    <line x1="72" y1="12" x2="56" y2="28" stroke="#6366f1" stroke-width="14" stroke-linecap="round"/>
+    <line x1="12" y1="72" x2="28" y2="56" stroke="#6366f1" stroke-width="14" stroke-linecap="round"/>
+    <line x1="72" y1="72" x2="56" y2="56" stroke="#6366f1" stroke-width="14" stroke-linecap="round"/>
+  </g>
+</svg>
