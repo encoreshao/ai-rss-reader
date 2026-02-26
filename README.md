@@ -1,8 +1,10 @@
 # AI RSS Reader
 
-一款由 Gemini AI 驱动的现代化 RSS 阅读器，支持聚合订阅、智能摘要与每日资讯简报。
+从 Andrej Karpathy 推荐的顶级技术博客中抓取最新文章，支持聚合订阅、包括 X (Twitter) 账号，智能摘要与每日资讯简报。
 
 [English](./README.en.md)
+
+> 信息源来源 [HN Popularity Contest](https://refactoringenglish.com/tools/hn-popularity/)，涵盖 paulgraham.com, krebsonsecurity.com, simonwillison.net、daringfireball.net 等。
 
 ---
 

@@ -1,8 +1,10 @@
 # AI RSS Reader
 
-A modern RSS reader powered by Gemini AI — aggregate feeds, generate smart summaries, and produce editorial-style daily digests.
+Fetch the latest articles from top tech blogs recommended by Andrej Karpathy, with support for aggregated subscriptions, including X (Twitter) accounts, smart summaries, and daily news digest.
 
 [中文](./README.md)
+
+> Information sources include [HN Popularity Contest](https://refactoringenglish.com/tools/hn-popularity/), covering paulgraham.com, krebsonsecurity.com, simonwillison.net, daringfireball.net, etc.
 
 ---
 
