@@ -1,0 +1,5 @@
+{
+  "name": "AI RSS Reader",
+  "description": "A modern RSS reader with AI-powered article summarization and automated daily/weekly digests.",
+  "requestFramePermissions": []
+}
