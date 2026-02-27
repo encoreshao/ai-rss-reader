@@ -1,7 +1,7 @@
 {
   "name": "AI RSS Reader",
   "short_name": "AI Reader",
-  "description": "A modern RSS reader powered by Gemini AI",
+  "description": "A modern RSS reader powered by AI (Gemini, Claude, OpenAI)",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#fafafa",
