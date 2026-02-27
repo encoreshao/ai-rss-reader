@@ -4,6 +4,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import Parser from "rss-parser";
 import Database from "better-sqlite3";
+import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { INITIAL_FEEDS } from "./src/constants";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,6 +50,46 @@ const parser = new Parser({
     ],
   },
 });
+
+async function callAIProvider(
+  provider: string,
+  apiKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  maxTokens = 1024,
+): Promise<string> {
+  if (provider === "gemini") {
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: userPrompt,
+      config: { systemInstruction: systemPrompt },
+    });
+    return response.text || "";
+  }
+  if (provider === "claude") {
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    });
+    return message.content[0].type === "text" ? message.content[0].text : "";
+  }
+  if (provider === "openai") {
+    const client = new OpenAI({ apiKey });
+    const response = await client.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    });
+    return response.choices[0]?.message?.content || "";
+  }
+  throw new Error(`Unknown provider: ${provider}`);
+}
 
 async function startServer() {
   const app = express();
@@ -188,6 +231,45 @@ async function startServer() {
       res.json(feeds);
     } catch (error: any) {
       res.status(500).json({ error: "Failed to generate digest data" });
+    }
+  });
+
+  // AI summarize endpoint
+  app.post("/api/ai/summarize", async (req, res) => {
+    const { provider, apiKey, title, content } = req.body;
+    if (!provider || !apiKey) {
+      return res.status(400).json({ error: "Provider and API key are required" });
+    }
+    try {
+      const text = await callAIProvider(
+        provider, apiKey,
+        "You are a professional news editor. Summarize articles clearly and concisely in 3-4 sentences.",
+        `Summarize this article concisely.\nTitle: ${title}\nContent: ${(content || "").substring(0, 5000)}`,
+      );
+      res.json({ text });
+    } catch (error: any) {
+      console.error("AI summarize error:", error.message);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // AI digest endpoint
+  app.post("/api/ai/digest", async (req, res) => {
+    const { provider, apiKey, type, articles } = req.body;
+    if (!provider || !apiKey) {
+      return res.status(400).json({ error: "Provider and API key are required" });
+    }
+    try {
+      const text = await callAIProvider(
+        provider, apiKey,
+        `You are a world-class editorial curator. Create a ${type} digest that is sophisticated, scannable, and insightful. Use Markdown with bold headings. Start directly with the content.`,
+        `Generate a ${type} digest from these articles.\n\n1. **The Big Picture**: 2-sentence overview.\n2. **Top Stories**: 3-4 thematic sections.\n3. **Quick Hits**: Bulleted list.\n4. **The Takeaway**: Concluding insight.\n\nArticles: ${JSON.stringify(articles)}`,
+        4096,
+      );
+      res.json({ text });
+    } catch (error: any) {
+      console.error("AI digest error:", error.message);
+      res.status(500).json({ error: error.message });
     }
   });
 

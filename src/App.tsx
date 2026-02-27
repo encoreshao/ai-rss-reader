@@ -17,10 +17,19 @@ import {
   XCircle,
   AlertTriangle,
   Info,
+  Settings,
+  KeyRound,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import Markdown from 'react-markdown';
-import { summarizeArticle, generateDigest, hasApiKey } from './services/geminiService';
+import {
+  type AIConfig,
+  type AIProvider,
+  getAIConfig,
+  saveAIConfig,
+  summarizeArticle,
+  generateDigest,
+} from './services/aiService';
 
 interface Feed {
   id: number;
@@ -109,6 +118,9 @@ export default function App() {
   const [newFeed, setNewFeed] = useState({ name: '', url: '', type: 'rss' as 'rss' | 'x', category: 'General' });
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [aiConfig, setAiConfig] = useState<AIConfig>({ provider: 'gemini', apiKey: '' });
 
   const showToast = (message: string, type: ToastType = 'info') => {
     const id = Date.now();
@@ -122,10 +134,15 @@ export default function App() {
   }, [feeds]);
 
   useEffect(() => {
+    setAiConfig(getAIConfig());
+  }, []);
+
+  useEffect(() => {
     fetchFeeds();
   }, []);
 
   useEffect(() => {
+    setSelectedArticle(null);
     if (selectedFeed) {
       fetchFeed(selectedFeed);
     } else {
@@ -244,17 +261,25 @@ export default function App() {
     return doc.body.textContent || '';
   };
 
+  const sanitizeHtml = (html: string) =>
+    html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\son\w+="[^"]*"/gi, '')
+      .replace(/\son\w+='[^']*'/gi, '')
+      .replace(/javascript:/gi, 'void:');
+
   const handleSummarize = async (article: Article) => {
-    if (!hasApiKey) {
-      showToast('AI features are disabled — add your Gemini API key to enable summaries.', 'warning');
+    if (!aiConfig.apiKey.trim()) {
+      showToast('Configure your AI provider in Settings to use AI features.', 'warning');
+      setShowSettings(true);
       return;
     }
     setSummarizing(article.link);
     try {
-      const summary = await summarizeArticle(article.title, article.content || article.contentSnippet);
-      setArticles(prev =>
-        prev.map(a => (a.link === article.link ? { ...a, summary: stripHtml(summary) } : a))
-      );
+      const summary = await summarizeArticle(aiConfig, article.title, article.content || article.contentSnippet);
+      const updated = { ...article, summary: stripHtml(summary) };
+      setArticles(prev => prev.map(a => a.link === article.link ? updated : a));
+      if (selectedArticle?.link === article.link) setSelectedArticle(updated);
     } catch {
       showToast("Couldn't generate a summary right now. Please try again.", 'error');
     } finally {
@@ -264,21 +289,34 @@ export default function App() {
 
   const handleGenerateDigest = async (type: 'daily' | 'weekly') => {
     if (articles.length === 0) return;
-    if (!hasApiKey) {
-      showToast('AI features are disabled — add your Gemini API key to enable digests.', 'warning');
+    if (!aiConfig.apiKey.trim()) {
+      showToast('Configure your AI provider in Settings to use AI features.', 'warning');
+      setShowSettings(true);
       return;
     }
     setLoading(true);
+    setSelectedArticle(null);
     try {
       const contextName = selectedFeed ? feeds.find(f => f.xmlUrl === selectedFeed)?.name : 'All Feeds';
       const digestArticles = articles.slice(0, 20).map(a => ({ title: a.title, source: a.source }));
-      const content = await generateDigest(type, digestArticles);
+      const content = await generateDigest(aiConfig, type, digestArticles);
       setDigest({ type, content: `### ${contextName} — ${type === 'daily' ? 'Daily' : 'Weekly'} Digest\n\n${content}` });
     } catch {
       showToast("Couldn't generate the digest right now. Please try again.", 'error');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSaveSettings = () => {
+    saveAIConfig(aiConfig);
+    setShowSettings(false);
+    showToast(`${aiConfig.provider.charAt(0).toUpperCase() + aiConfig.provider.slice(1)} configured.`, 'success');
+  };
+
+  const handleOpenSettings = () => {
+    setAiConfig(getAIConfig());
+    setShowSettings(true);
   };
 
   const handleExportCSV = () => {
@@ -446,7 +484,7 @@ export default function App() {
       </motion.aside>
 
       {/* ── Main ────────────────────────────────────────────── */}
-      <main className="flex-1 flex flex-col overflow-hidden">
+      <main className="flex-1 flex flex-col overflow-hidden relative">
 
         {/* Header */}
         <header className="h-[68px] border-b border-[#e5e5e5] bg-white/80 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
@@ -486,6 +524,13 @@ export default function App() {
             >
               <FileText className="w-4 h-4" />
             </button>
+            <button
+              onClick={handleOpenSettings}
+              className={`p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors cursor-pointer ${aiConfig.apiKey.trim() ? 'text-indigo-500 hover:text-indigo-700' : 'text-[#b0b0b0] hover:text-[#171717]'}`}
+              title="AI Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
             <div className="w-px h-5 bg-[#e5e5e5] mx-1" />
             <button
               onClick={() => handleGenerateDigest('daily')}
@@ -499,7 +544,7 @@ export default function App() {
         </header>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto bg-[#fafafa]">
+        <div className={`flex-1 overflow-y-auto bg-[#fafafa] transition-[padding] duration-300 ${selectedArticle ? 'pr-[46%]' : ''}`}>
           <div className="max-w-3xl mx-auto px-6 py-8 md:px-10 md:py-10">
 
             {/* Error Banner */}
@@ -595,7 +640,7 @@ export default function App() {
                           <Sparkles className="w-5 h-5 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-[#171717]">Generated by Gemini AI</p>
+                          <p className="text-sm font-semibold text-[#171717]">Generated by {aiConfig.provider.charAt(0).toUpperCase() + aiConfig.provider.slice(1)} AI</p>
                           <p className="text-xs text-[#a3a3a3] mt-0.5">Based on {articles.length} recent articles</p>
                         </div>
                       </div>
@@ -654,16 +699,20 @@ export default function App() {
                 <AnimatePresence mode="popLayout">
                   {articles.map((article, idx) => {
                     const isX = article.feedType === 'x';
+                    const isSelected = selectedArticle?.link === article.link;
                     return (
                       <motion.article
                         key={`${article.link}-${idx}`}
                         initial={{ opacity: 0, y: 12 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: Math.min(idx * 0.025, 0.3), ease: 'easeOut' }}
-                        className={`group p-6 rounded-3xl border transition-all duration-250 ${
-                          isX
-                            ? 'bg-white border-sky-100 hover:border-sky-300 hover:shadow-md hover:shadow-sky-500/5'
-                            : 'bg-white border-[#e8e8e8] hover:border-[#c8c8c8] hover:shadow-md hover:shadow-black/5'
+                        onClick={() => setSelectedArticle(article)}
+                        className={`group p-6 rounded-3xl border transition-all duration-250 cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-50/40 border-indigo-300 shadow-md shadow-indigo-500/5'
+                            : isX
+                              ? 'bg-white border-sky-100 hover:border-sky-300 hover:shadow-md hover:shadow-sky-500/5'
+                              : 'bg-white border-[#e8e8e8] hover:border-[#c8c8c8] hover:shadow-md hover:shadow-black/5'
                         }`}
                       >
                         {/* Source + Date */}
@@ -726,7 +775,7 @@ export default function App() {
                         {/* Actions */}
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => handleSummarize(article)}
+                            onClick={e => { e.stopPropagation(); handleSummarize(article); }}
                             disabled={summarizing === article.link}
                             className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                               isX
@@ -744,6 +793,7 @@ export default function App() {
                             href={article.link}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={e => e.stopPropagation()}
                             className="inline-flex items-center gap-2 px-4 py-2 bg-[#f5f5f5] text-[#525252] hover:bg-[#ebebeb] rounded-xl text-sm font-medium transition-colors cursor-pointer"
                           >
                             {isX ? 'View post' : 'Read article'}
@@ -758,6 +808,104 @@ export default function App() {
             )}
           </div>
         </div>
+
+        {/* ── Article Panel ──────────────────────────────────── */}
+        <AnimatePresence>
+          {selectedArticle && (
+            <motion.div
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 24 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute right-0 top-[68px] w-[46%] h-[calc(100%-68px)] border-l border-[#e5e5e5] bg-white flex flex-col shadow-2xl shadow-black/8 z-10"
+            >
+              {/* Panel header */}
+              <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-[#e5e5e5] bg-white/90 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-500 truncate">{selectedArticle.source}</span>
+                  <span className="text-[10px] text-[#d4d4d4]">·</span>
+                  <span className="text-[10px] text-[#a3a3a3] tabular-nums whitespace-nowrap">
+                    {new Date(selectedArticle.pubDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button
+                    onClick={() => handleSummarize(selectedArticle)}
+                    disabled={summarizing === selectedArticle.link}
+                    title="AI Summary"
+                    className="p-2 hover:bg-indigo-50 text-[#b0b0b0] hover:text-indigo-600 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                  >
+                    {summarizing === selectedArticle.link
+                      ? <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
+                      : <Sparkles className="w-4 h-4" />
+                    }
+                  </button>
+                  <a
+                    href={selectedArticle.link}
+                    target="_blank"
+                    rel="noreferrer"
+                    title="Open in browser"
+                    className="p-2 hover:bg-[#f5f5f5] text-[#b0b0b0] hover:text-[#171717] rounded-lg transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                  <button
+                    onClick={() => setSelectedArticle(null)}
+                    className="p-2 hover:bg-[#f5f5f5] text-[#b0b0b0] hover:text-[#171717] rounded-lg transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* AI Summary banner */}
+              <AnimatePresence>
+                {selectedArticle.summary && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="border-b border-indigo-100 bg-indigo-50/60 px-5 py-3.5 shrink-0"
+                  >
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Sparkles className="w-3 h-3 text-indigo-500" />
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-indigo-500">AI Summary</span>
+                    </div>
+                    <p className="text-sm leading-relaxed text-indigo-900 italic">{selectedArticle.summary}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Content */}
+              <div className="flex-1 overflow-y-auto px-6 py-5">
+                <h1 className="font-heading text-lg font-semibold leading-snug tracking-tight text-[#171717] mb-5">
+                  {selectedArticle.title}
+                </h1>
+
+                {selectedArticle.content && selectedArticle.content.trim().length > 80 ? (
+                  <div
+                    className="prose prose-sm prose-neutral max-w-none prose-img:rounded-xl prose-img:max-w-full prose-a:text-indigo-600 prose-a:no-underline hover:prose-a:underline prose-headings:font-semibold prose-headings:tracking-tight"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(selectedArticle.content) }}
+                  />
+                ) : selectedArticle.contentSnippet ? (
+                  <p className="text-sm text-[#404040] leading-relaxed">{selectedArticle.contentSnippet}</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-[#a3a3a3]">No content in RSS feed — loading from source:</p>
+                    <iframe
+                      src={selectedArticle.link}
+                      title={selectedArticle.title}
+                      className="w-full border border-[#e5e5e5] rounded-2xl"
+                      style={{ height: '70vh' }}
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
       </main>
 
       {/* ── Add Feed Modal ───────────────────────────────────── */}
@@ -873,6 +1021,97 @@ export default function App() {
                     Subscribe
                   </button>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── AI Settings Modal ────────────────────────────────── */}
+      <AnimatePresence>
+        {showSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setAiConfig(getAIConfig()); setShowSettings(false); }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ ease: 'easeOut', duration: 0.18 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl shadow-black/15 overflow-hidden"
+            >
+              <div className="p-7 space-y-6">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="font-heading text-xl font-semibold tracking-tight">AI Settings</h3>
+                    <p className="text-sm text-[#a3a3a3] mt-1">Choose your AI provider</p>
+                  </div>
+                  <button
+                    onClick={() => { setAiConfig(getAIConfig()); setShowSettings(false); }}
+                    className="p-2 hover:bg-[#f5f5f5] rounded-xl transition-colors cursor-pointer text-[#737373] hover:text-[#171717] mt-0.5"
+                  >
+                    <X className="w-4.5 h-4.5" />
+                  </button>
+                </div>
+
+                {/* Provider selection */}
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-[#525252]">Provider</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { id: 'gemini', label: 'Gemini', model: 'gemini-2.0-flash' },
+                      { id: 'claude', label: 'Claude', model: 'claude-opus-4-5' },
+                      { id: 'openai', label: 'OpenAI', model: 'gpt-4o' },
+                    ] as { id: AIProvider; label: string; model: string }[]).map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setAiConfig(prev => ({ ...prev, provider: p.id }))}
+                        className={`flex flex-col items-center gap-1 p-3.5 rounded-2xl border-2 text-center transition-all cursor-pointer ${
+                          aiConfig.provider === p.id
+                            ? 'border-indigo-500 bg-indigo-50'
+                            : 'border-[#e5e5e5] hover:border-[#c8c8c8]'
+                        }`}
+                      >
+                        <span className={`text-sm font-semibold ${aiConfig.provider === p.id ? 'text-indigo-700' : 'text-[#171717]'}`}>
+                          {p.label}
+                        </span>
+                        <span className="text-[9px] text-[#a3a3a3] font-medium">{p.model}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* API Key */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-[#525252] flex items-center gap-1.5">
+                    <KeyRound className="w-3.5 h-3.5" />
+                    {aiConfig.provider === 'gemini' ? 'Gemini API Key' : aiConfig.provider === 'claude' ? 'Anthropic API Key' : 'OpenAI API Key'}
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Paste your API key…"
+                    value={aiConfig.apiKey}
+                    onChange={e => setAiConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                    className="w-full px-4 py-3 bg-[#f5f5f5] rounded-xl text-sm font-mono outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all placeholder:text-[#c0c0c0] placeholder:font-sans"
+                  />
+                  <p className="text-[10px] text-[#b0b0b0] px-0.5">
+                    Keys are stored locally in your browser only.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={!aiConfig.apiKey.trim()}
+                  className="w-full py-3.5 bg-[#171717] text-white rounded-xl text-sm font-semibold hover:bg-[#333] transition-colors shadow-md shadow-black/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
               </div>
             </motion.div>
           </div>
