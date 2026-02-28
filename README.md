@@ -7,8 +7,8 @@
 > 信息源来源 [HN Popularity Contest](https://refactoringenglish.com/tools/hn-popularity/)，涵盖 paulgraham.com、krebsonsecurity.com、simonwillison.net、daringfireball.net 等。
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/Node.js-16+-green.svg)](https://nodejs.org/)
-[![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://reactjs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://reactjs.org/)
 
 **[Live Demo](https://rss.ranbot.online)** · **[Report Bug](https://github.com/encoreshao/ai-rss-reader/issues)** · **[Request Feature](https://github.com/encoreshao/ai-rss-reader/issues)**
 
