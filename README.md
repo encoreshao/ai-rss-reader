@@ -10,7 +10,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
 [![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://reactjs.org/)
 
-**[Live Demo](https://rss.ranbot.online)** · **[Report Bug](https://github.com/encoreshao/ai-rss-reader/issues)** · **[Request Feature](https://github.com/encoreshao/ai-rss-reader/issues)**
+**[在线展示](https://rss.ranbot.online)** · **[发现问题](https://github.com/encoreshao/ai-rss-reader/issues)** · **[请求功能](https://github.com/encoreshao/ai-rss-reader/issues)**
 
 ---
 

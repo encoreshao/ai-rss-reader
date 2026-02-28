@@ -6,6 +6,12 @@ Fetch the latest articles from top tech blogs recommended by Andrej Karpathy, wi
 
 > Sources include the [HN Popularity Contest](https://refactoringenglish.com/tools/hn-popularity/) list — paulgraham.com, krebsonsecurity.com, simonwillison.net, daringfireball.net, and more.
 
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-22+-green.svg)](https://nodejs.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://reactjs.org/)
+
+**[Live Demo](https://rss.ranbot.online)** · **[Report Bug](https://github.com/encoreshao/ai-rss-reader/issues)** · **[Request Feature](https://github.com/encoreshao/ai-rss-reader/issues)**
+
 ---
 
 ## Features
