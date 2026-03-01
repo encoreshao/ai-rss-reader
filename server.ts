@@ -23,7 +23,11 @@ db.exec(`
     htmlUrl TEXT,
     type TEXT DEFAULT 'rss',
     category TEXT DEFAULT 'General'
-  )
+  );
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  );
 `);
 
 // Seed initial feeds if empty
@@ -107,6 +111,18 @@ async function startServer() {
     }
     return url;
   };
+
+  // Settings API
+  app.get("/api/settings/:key", (req, res) => {
+    const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(req.params.key) as { value: string } | undefined;
+    res.json({ value: row?.value ?? null });
+  });
+
+  app.put("/api/settings/:key", (req, res) => {
+    const { value } = req.body;
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(req.params.key, value ?? '');
+    res.json({ ok: true });
+  });
 
   // API route to get all feeds
   app.get("/api/feeds", (req, res) => {
