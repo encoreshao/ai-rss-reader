@@ -401,4 +401,10 @@ export const INITIAL_FEEDS = [
     htmlUrl: "https://medium.com",
     category: "AI",
   },
+  {
+    name: "TLDR Tech",
+    xmlUrl: "https://tldr.tech/api/rss/tech",
+    htmlUrl: "https://tldr.tech",
+    category: "Tech",
+  },
 ];
